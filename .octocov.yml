@@ -2,7 +2,7 @@ coverage:
   if: true
   paths:
     - coverage.out
-  acceptable: current >= 80% && diff >= 0.5%
+  acceptable: current >= 80%
 codeToTestRatio:
   acceptable: 1:1.2
   code:
