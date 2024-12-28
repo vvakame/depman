@@ -1,0 +1,29 @@
+coverage:
+  if: true
+  paths:
+    - coverage.out
+  acceptable: current >= 80% && diff >= 0.5%
+codeToTestRatio:
+  acceptable: 1:1.2
+  code:
+    - '**/*.go'
+    - '!**/*_test.go'
+  test:
+    - '**/*_test.go'
+testExecutionTime:
+  acceptable: 30sec
+diff:
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}
+push:
+  if: is_default_branch
+comment:
+  if: is_pull_request
+summary:
+  if: true
+# body:
+#   if: is_pull_request
+report:
+  if: is_default_branch
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}

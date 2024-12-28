@@ -5,5 +5,5 @@ version: '3'
 tasks:
   test:
     cmds:
-      - go test -cover ./... -coverprofile=cover.out
-      - go tool cover -html=cover.out -o cover.html
+      - go test -cover ./... -coverprofile=coverage.out
+      - go tool cover -html=coverage.out -o coverage.html
