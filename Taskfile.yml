@@ -1,0 +1,9 @@
+# https://taskfile.dev
+
+version: '3'
+
+tasks:
+  test:
+    cmds:
+      - go test -cover ./... -coverprofile=cover.out
+      - go tool cover -html=cover.out -o cover.html
