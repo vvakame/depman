@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"golang.org/x/sync/errgroup"
 	"testing"
 
 	"github.com/vvakame/depman"
+	"golang.org/x/sync/errgroup"
 )
 
 var _ depman.ResourceSpec[bool] = BoolSpec{}
@@ -192,6 +192,10 @@ func TestRequestResource(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+		tm, ok := m.(depman.TestResourceManager)
+		if !ok {
+			t.Fatal("m is not TestResourceManager")
+		}
 
 		var counter int
 		countFn := func(ctx context.Context) (int, error) {
@@ -203,13 +207,13 @@ func TestRequestResource(t *testing.T) {
 		}
 
 		var eg errgroup.Group
-		startCh := make(chan struct{})
-		for i := 0; i < 100; i++ {
-			eg.Go(func() error {
-				select {
-				case <-startCh:
-				}
+		lock1 := make(chan struct{})
+		lock2 := make(chan struct{})
+		lock3 := make(chan struct{})
 
+		{
+			tm.SetTestLock1(lock1)
+			eg.Go(func() error {
 				v, err := depman.RequestResource(ctx, m, spec)
 				if err != nil {
 					return err
@@ -221,8 +225,57 @@ func TestRequestResource(t *testing.T) {
 
 				return nil
 			})
+			<-lock1
+			t.Log("lock1 stand-by")
 		}
-		close(startCh)
+		{
+			tm.SetTestLock2(lock2)
+			eg.Go(func() error {
+				v, err := depman.RequestResource(ctx, m, spec)
+				if err != nil {
+					return err
+				}
+
+				if v != 1 {
+					t.Errorf("unexpected value: %v", v)
+				}
+
+				return nil
+			})
+			<-lock2
+			t.Log("lock2 stand-by")
+		}
+		{
+			tm.SetTestLock3(lock3)
+			eg.Go(func() error {
+				v, err := depman.RequestResource(ctx, m, spec)
+				if err != nil {
+					return err
+				}
+
+				if v != 1 {
+					t.Errorf("unexpected value: %v", v)
+				}
+
+				return nil
+			})
+			<-lock3
+			t.Log("lock3 stand-by")
+		}
+		{
+			v, err := depman.RequestResource(ctx, m, spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if v != 1 {
+				t.Errorf("unexpected value: %v", v)
+			}
+		}
+
+		close(lock1)
+		close(lock2)
+		close(lock3)
 
 		err := eg.Wait()
 		if err != nil {

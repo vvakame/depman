@@ -36,6 +36,10 @@ type managerImpl struct {
 	resources map[any]any
 	waits     map[any]chan struct{}
 	closeFns  []CloseFn
+
+	testLock1 chan struct{}
+	testLock2 chan struct{}
+	testLock3 chan struct{}
 }
 
 func (m *managerImpl) createResource(ctx context.Context, spec any) (any, error) {
@@ -44,6 +48,17 @@ func (m *managerImpl) createResource(ctx context.Context, spec any) (any, error)
 	}
 
 	m.m.RLock()
+	if m.testLock1 != nil {
+		// for make stable test coverage
+		m.m.RUnlock()
+		m.m.Lock()
+		lockCh := m.testLock1
+		m.testLock1 = nil
+		m.m.Unlock()
+		lockCh <- struct{}{}
+		<-lockCh
+		m.m.RLock()
+	}
 	res, ok := m.resources[spec]
 	m.m.RUnlock()
 	if ok {
@@ -51,12 +66,30 @@ func (m *managerImpl) createResource(ctx context.Context, spec any) (any, error)
 	}
 
 	m.m.Lock()
+	if m.testLock2 != nil {
+		// for make stable test coverage
+		lockCh := m.testLock2
+		m.testLock2 = nil
+		m.m.Unlock()
+		lockCh <- struct{}{}
+		<-lockCh
+		m.m.Lock()
+	}
 	res, ok = m.resources[spec]
 	if ok {
 		m.m.Unlock()
 		return res, nil
 	}
 
+	if m.testLock3 != nil {
+		// for make stable test coverage
+		lockCh := m.testLock3
+		m.testLock3 = nil
+		m.m.Unlock()
+		lockCh <- struct{}{}
+		<-lockCh
+		m.m.Lock()
+	}
 	waitCh, ok := m.waits[spec]
 	if ok {
 		m.m.Unlock()
