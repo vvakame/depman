@@ -1,3 +1,9 @@
+// Package depman provides a simple dependency manager for resources.
+// The basic idea is to write a specification for creating a resource,
+// and then create the resource according to that specification.
+// The specification is managed according to Go's comparison operation specification,
+// and if the specifications are the same, the same resource will be returned.
+// In other words, by creating the specification carefully, you can manage the extent to which resources are shared.
 package depman
 
 import (
