@@ -54,3 +54,7 @@ func RequestResource[T any](ctx context.Context, rm ResourceManager, spec Resour
 
 	return typedRes, nil
 }
+
+func SetResource[T any](ctx context.Context, rm ResourceManager, spec ResourceSpec[T], res T) error {
+	return rm.setResource(ctx, spec, res)
+}

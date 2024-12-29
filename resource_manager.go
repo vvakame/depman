@@ -1,6 +1,7 @@
 package depman
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 type ResourceManager interface {
 	createResource(ctx context.Context, spec any) (any, error)
 	getResource(ctx context.Context, spec any) (any, error)
+	setResource(ctx context.Context, spec any, res any) error
 
 	CloseAll(ctx context.Context) error
 }
@@ -28,7 +30,26 @@ var (
 
 var (
 	ErrResourceSpecIsNotComparable = errors.New("resource spec is not comparable")
+	ErrCycleDependency             = errors.New("cycle dependency")
+	ErrResourceManagerClosed       = errors.New("resource manager was closed")
+	ErrResourceManagerAborted      = errors.New("resource manager was aborted")
 )
+
+type contextKeyDependency struct{}
+
+func extractDependencies(ctx context.Context) []any {
+	raw := ctx.Value(contextKeyDependency{})
+	if raw == nil {
+		return nil
+	}
+
+	specs, ok := raw.([]any)
+	if !ok {
+		panic(fmt.Sprintf("unexpected type: %T", raw))
+	}
+
+	return specs
+}
 
 type managerImpl struct {
 	m sync.RWMutex
@@ -36,6 +57,8 @@ type managerImpl struct {
 	resources map[any]any
 	waits     map[any]chan struct{}
 	closeFns  []CloseFn
+	closed    bool
+	abort     bool
 
 	testLock1 chan struct{}
 	testLock2 chan struct{}
@@ -47,7 +70,24 @@ func (m *managerImpl) createResource(ctx context.Context, spec any) (any, error)
 		return nil, ErrResourceSpecIsNotComparable
 	}
 
+	ctx, err := m.checkDependencies(ctx, spec)
+	if err != nil {
+		m.m.Lock()
+		m.abort = true
+		m.m.Unlock()
+		return nil, err
+	}
+
 	m.m.RLock()
+	if m.closed {
+		m.m.RUnlock()
+		return nil, ErrResourceManagerClosed
+	}
+	if m.abort {
+		m.m.RUnlock()
+		return nil, ErrResourceManagerAborted
+	}
+
 	if m.testLock1 != nil {
 		// for make stable test coverage
 		m.m.RUnlock()
@@ -139,7 +179,6 @@ func (m *managerImpl) createResource(ctx context.Context, spec any) (any, error)
 	if closeFn != nil {
 		m.closeFns = append(m.closeFns, closeFn)
 	}
-	var err error
 	{
 		rawErr := vs[2].Interface()
 		if rawErr == nil {
@@ -163,12 +202,38 @@ func (m *managerImpl) createResource(ctx context.Context, spec any) (any, error)
 	return res, nil
 }
 
+func (m *managerImpl) checkDependencies(ctx context.Context, next any) (context.Context, error) {
+	parentSpecs := extractDependencies(ctx)
+	for _, parentSpec := range parentSpecs {
+		if parentSpec == next {
+			var buf bytes.Buffer
+			for _, parentSpec := range parentSpecs {
+				_, _ = fmt.Fprintf(&buf, "%T -> ", parentSpec)
+			}
+
+			return nil, fmt.Errorf("%w: %s %T", ErrCycleDependency, buf.String(), next)
+		}
+	}
+
+	nextDependencies := make([]any, len(parentSpecs), len(parentSpecs)+1)
+	copy(nextDependencies, parentSpecs)
+	nextDependencies = append(nextDependencies, next)
+	ctx = context.WithValue(ctx, contextKeyDependency{}, nextDependencies)
+
+	return ctx, nil
+}
+
 func (m *managerImpl) getResource(ctx context.Context, spec any) (any, error) {
 	if !reflect.TypeOf(spec).Comparable() {
 		return nil, ErrResourceSpecIsNotComparable
 	}
 
 	m.m.RLock()
+	if m.closed {
+		m.m.RUnlock()
+		return nil, ErrResourceManagerClosed
+	}
+
 	res, ok := m.resources[spec]
 	m.m.RUnlock()
 	if !ok {
@@ -178,7 +243,25 @@ func (m *managerImpl) getResource(ctx context.Context, spec any) (any, error) {
 	return res, nil
 }
 
+func (m *managerImpl) setResource(ctx context.Context, spec any, res any) error {
+	if !reflect.TypeOf(spec).Comparable() {
+		return ErrResourceSpecIsNotComparable
+	}
+
+	m.m.Lock()
+	defer m.m.Unlock()
+
+	// allow to overwrite
+	m.resources[spec] = res
+
+	return nil
+}
+
 func (m *managerImpl) CloseAll(ctx context.Context) error {
+	m.m.Lock()
+	defer m.m.Unlock()
+	m.closed = true
+
 	var err error
 	for _, closeFn := range m.closeFns {
 		err = errors.Join(err, closeFn(ctx))
