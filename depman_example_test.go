@@ -43,7 +43,7 @@ func (spec *DedicatedResourceSpec) CreateResource(ctx context.Context, rm depman
 	return retFn, closeFun, nil
 }
 
-func Example_specComparison() {
+func ExampleRequestResource() {
 	ctx := context.Background()
 
 	m := depman.NewManager()
@@ -136,7 +136,7 @@ func (spec SumSpec) CreateResource(ctx context.Context, rm depman.ResourceManage
 	return v, nil, err
 }
 
-func Example_specCascade() {
+func ExampleRequestResource_specCascade() {
 	ctx := context.Background()
 
 	m := depman.NewManager()
@@ -168,4 +168,41 @@ func Example_specCascade() {
 	// 10
 	// 55
 	// 55
+}
+
+var _ depman.ResourceSpec[int] = (*CallbackFnSpec)(nil)
+
+type CallbackFnSpec struct {
+	Callback func()
+}
+
+func (spec *CallbackFnSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (int, depman.CloseFn, error) {
+	spec.Callback()
+	return 0, nil, nil
+}
+
+func ExampleSetResource() {
+	ctx := context.Background()
+
+	m := depman.NewManager()
+
+	spec := &CallbackFnSpec{
+		Callback: func() {
+			fmt.Println("callback")
+		},
+	}
+	err := depman.SetResource(ctx, m, spec, 100)
+	if err != nil {
+		panic(err)
+	}
+
+	// cached. so callback function never called.
+	v, err := depman.RequestResource(ctx, m, spec)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(v)
+
+	// Output:
+	// 100
 }
