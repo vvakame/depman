@@ -15,10 +15,24 @@ import (
 type CloseFn = func(ctx context.Context) error
 
 type ResourceSpec[T any] interface {
-	CreateResource(ctx context.Context, rm ResourceManager) (T, CloseFn, error)
+	CreateResource(ctx context.Context) (T, CloseFn, error)
 }
 
-func RequestResource[T any](ctx context.Context, rm ResourceManager, spec ResourceSpec[T]) (T, error) {
+type resourceSpecInfo interface {
+	ResourceSpecName() string
+}
+
+func RequestResource[T any](ctx context.Context, spec ResourceSpec[T]) (T, error) {
+	rm := resourceManagerFromContext(ctx)
+	if rm == nil {
+		var zeroT T
+		return zeroT, errors.New("ctx doesn't have depman resource manager")
+	}
+
+	return requestResourceWithResourceManager(ctx, rm, spec)
+}
+
+func requestResourceWithResourceManager[T any](ctx context.Context, rm ResourceManager, spec ResourceSpec[T]) (T, error) {
 	res, err := rm.getResource(ctx, spec)
 	if errors.Is(err, errResourceNotFound) {
 		// resource not found, create it
@@ -55,6 +69,15 @@ func RequestResource[T any](ctx context.Context, rm ResourceManager, spec Resour
 	return typedRes, nil
 }
 
-func SetResource[T any](ctx context.Context, rm ResourceManager, spec ResourceSpec[T], res T) error {
+func SetResource[T any](ctx context.Context, spec ResourceSpec[T], res T) error {
+	rm := resourceManagerFromContext(ctx)
+	if rm == nil {
+		return errors.New("ctx doesn't have depman resource manager")
+	}
+
+	return setResourceWithResourceManager(ctx, rm, spec, res)
+}
+
+func setResourceWithResourceManager[T any](ctx context.Context, rm ResourceManager, spec ResourceSpec[T], res T) error {
 	return rm.setResource(ctx, spec, res)
 }

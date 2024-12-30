@@ -5,5 +5,5 @@ version: '3'
 tasks:
   test:
     cmds:
-      - go test -cover ./... -coverprofile=coverage.out
+      - go test -cover ./... -coverprofile=coverage.out -timeout 10s
       - go tool cover -html=coverage.out -o coverage.html
