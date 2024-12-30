@@ -16,7 +16,7 @@ type BoolSpec struct {
 	Value bool
 }
 
-func (spec BoolSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (bool, depman.CloseFn, error) {
+func (spec BoolSpec) CreateResource(ctx context.Context) (bool, depman.CloseFn, error) {
 	return spec.Value, nil, nil
 }
 
@@ -26,7 +26,7 @@ type NotComparableSpec struct {
 	SliceIsNotComparable []struct{}
 }
 
-func (spec NotComparableSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (struct{}, depman.CloseFn, error) {
+func (spec NotComparableSpec) CreateResource(ctx context.Context) (struct{}, depman.CloseFn, error) {
 	return struct{}{}, nil, nil
 }
 
@@ -36,7 +36,7 @@ type CounterSpec struct {
 	Fn *func(ctx context.Context) (int, error)
 }
 
-func (spec CounterSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (int, depman.CloseFn, error) {
+func (spec CounterSpec) CreateResource(ctx context.Context) (int, depman.CloseFn, error) {
 	v, err := (*spec.Fn)(ctx)
 	if err != nil {
 		return 0, nil, err
@@ -51,7 +51,7 @@ type PtrCounterSpec struct {
 	Fn func(ctx context.Context) (int, error)
 }
 
-func (spec *PtrCounterSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (int, depman.CloseFn, error) {
+func (spec *PtrCounterSpec) CreateResource(ctx context.Context) (int, depman.CloseFn, error) {
 	v, err := spec.Fn(ctx)
 	if err != nil {
 		return 0, nil, err
@@ -64,7 +64,7 @@ var _ depman.ResourceSpec[fmt.Stringer] = NilSpec{}
 
 type NilSpec struct{}
 
-func (spec NilSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (fmt.Stringer, depman.CloseFn, error) {
+func (spec NilSpec) CreateResource(ctx context.Context) (fmt.Stringer, depman.CloseFn, error) {
 	return nil, nil, nil
 }
 
@@ -72,7 +72,7 @@ var _ depman.ResourceSpec[struct{}] = AlwaysErrorSpec{}
 
 type AlwaysErrorSpec struct{}
 
-func (spec AlwaysErrorSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (struct{}, depman.CloseFn, error) {
+func (spec AlwaysErrorSpec) CreateResource(ctx context.Context) (struct{}, depman.CloseFn, error) {
 	return struct{}{}, nil, errors.New("always error")
 }
 
@@ -82,7 +82,7 @@ type CloseFnSpec struct {
 	CloseFn depman.CloseFn
 }
 
-func (spec *CloseFnSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (struct{}, depman.CloseFn, error) {
+func (spec *CloseFnSpec) CreateResource(ctx context.Context) (struct{}, depman.CloseFn, error) {
 	return struct{}{}, spec.CloseFn, nil
 }
 
@@ -92,9 +92,8 @@ func TestRequestResource(t *testing.T) {
 	t.Run("simple spec", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 		t.Cleanup(func() {
 			err := m.CloseAll(ctx)
 			if err != nil {
@@ -102,7 +101,7 @@ func TestRequestResource(t *testing.T) {
 			}
 		})
 
-		b, err := depman.RequestResource(ctx, m, BoolSpec{
+		b, err := depman.RequestResource(ctx, BoolSpec{
 			Value: true,
 		})
 		if err != nil {
@@ -116,9 +115,8 @@ func TestRequestResource(t *testing.T) {
 	t.Run("not comparable spec", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 		t.Cleanup(func() {
 			err := m.CloseAll(ctx)
 			if err != nil {
@@ -126,7 +124,7 @@ func TestRequestResource(t *testing.T) {
 			}
 		})
 
-		_, err := depman.RequestResource(ctx, m, NotComparableSpec{})
+		_, err := depman.RequestResource(ctx, NotComparableSpec{})
 		if !errors.Is(err, depman.ErrResourceSpecIsNotComparable) {
 			t.Fatal(err)
 		}
@@ -135,9 +133,8 @@ func TestRequestResource(t *testing.T) {
 	t.Run("resource was cached by same spec", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 		t.Cleanup(func() {
 			err := m.CloseAll(ctx)
 			if err != nil {
@@ -162,7 +159,7 @@ func TestRequestResource(t *testing.T) {
 		}
 
 		{
-			v, err := depman.RequestResource(ctx, m, spec1)
+			v, err := depman.RequestResource(ctx, spec1)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -171,7 +168,7 @@ func TestRequestResource(t *testing.T) {
 			}
 		}
 		{
-			v, err := depman.RequestResource(ctx, m, spec2)
+			v, err := depman.RequestResource(ctx, spec2)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -184,9 +181,8 @@ func TestRequestResource(t *testing.T) {
 	t.Run("resource creation executed in serial", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 		t.Cleanup(func() {
 			err := m.CloseAll(ctx)
 			if err != nil {
@@ -215,7 +211,7 @@ func TestRequestResource(t *testing.T) {
 		{
 			tm.SetTestLock1(lock1)
 			eg.Go(func() error {
-				v, err := depman.RequestResource(ctx, m, spec)
+				v, err := depman.RequestResource(ctx, spec)
 				if err != nil {
 					return err
 				}
@@ -232,7 +228,7 @@ func TestRequestResource(t *testing.T) {
 		{
 			tm.SetTestLock2(lock2)
 			eg.Go(func() error {
-				v, err := depman.RequestResource(ctx, m, spec)
+				v, err := depman.RequestResource(ctx, spec)
 				if err != nil {
 					return err
 				}
@@ -249,7 +245,7 @@ func TestRequestResource(t *testing.T) {
 		{
 			tm.SetTestLock3(lock3)
 			eg.Go(func() error {
-				v, err := depman.RequestResource(ctx, m, spec)
+				v, err := depman.RequestResource(ctx, spec)
 				if err != nil {
 					return err
 				}
@@ -264,7 +260,7 @@ func TestRequestResource(t *testing.T) {
 			t.Log("lock3 stand-by")
 		}
 		{
-			v, err := depman.RequestResource(ctx, m, spec)
+			v, err := depman.RequestResource(ctx, spec)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -287,9 +283,8 @@ func TestRequestResource(t *testing.T) {
 	t.Run("another spec, another resource", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 		t.Cleanup(func() {
 			err := m.CloseAll(ctx)
 			if err != nil {
@@ -314,7 +309,7 @@ func TestRequestResource(t *testing.T) {
 		}
 
 		{
-			v, err := depman.RequestResource(ctx, m, spec1)
+			v, err := depman.RequestResource(ctx, spec1)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -323,7 +318,7 @@ func TestRequestResource(t *testing.T) {
 			}
 		}
 		{
-			v, err := depman.RequestResource(ctx, m, spec2)
+			v, err := depman.RequestResource(ctx, spec2)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -336,9 +331,8 @@ func TestRequestResource(t *testing.T) {
 	t.Run("cache nil value", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 		t.Cleanup(func() {
 			err := m.CloseAll(ctx)
 			if err != nil {
@@ -347,7 +341,7 @@ func TestRequestResource(t *testing.T) {
 		})
 
 		{
-			v, err := depman.RequestResource(ctx, m, NilSpec{})
+			v, err := depman.RequestResource(ctx, NilSpec{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -356,7 +350,7 @@ func TestRequestResource(t *testing.T) {
 			}
 		}
 		{
-			v, err := depman.RequestResource(ctx, m, NilSpec{})
+			v, err := depman.RequestResource(ctx, NilSpec{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -369,9 +363,8 @@ func TestRequestResource(t *testing.T) {
 	t.Run("resource spec returns error", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 		t.Cleanup(func() {
 			err := m.CloseAll(ctx)
 			if err != nil {
@@ -379,7 +372,7 @@ func TestRequestResource(t *testing.T) {
 			}
 		})
 
-		_, err := depman.RequestResource(ctx, m, AlwaysErrorSpec{})
+		_, err := depman.RequestResource(ctx, AlwaysErrorSpec{})
 		if err == nil {
 			t.Fatal(err)
 		}
@@ -388,13 +381,12 @@ func TestRequestResource(t *testing.T) {
 	t.Run("resource spec returns close function", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 
 		var counter int
 
-		_, err := depman.RequestResource(ctx, m, &CloseFnSpec{
+		_, err := depman.RequestResource(ctx, &CloseFnSpec{
 			CloseFn: func(ctx context.Context) error {
 				counter++
 				return nil
@@ -417,14 +409,13 @@ func TestRequestResource(t *testing.T) {
 	t.Run("all of close functions must be called", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 
 		expectedErr1 := errors.New("error1")
 		expectedErr2 := errors.New("error2")
 
-		_, err := depman.RequestResource(ctx, m, &CloseFnSpec{
+		_, err := depman.RequestResource(ctx, &CloseFnSpec{
 			CloseFn: func(ctx context.Context) error {
 				return expectedErr1
 			},
@@ -433,7 +424,7 @@ func TestRequestResource(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = depman.RequestResource(ctx, m, &CloseFnSpec{
+		_, err = depman.RequestResource(ctx, &CloseFnSpec{
 			CloseFn: func(ctx context.Context) error {
 				return expectedErr2
 			},
@@ -457,11 +448,10 @@ func TestRequestResource(t *testing.T) {
 	t.Run("can't reuse after CloseAll called", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 
-		_, err := depman.RequestResource(ctx, m, BoolSpec{})
+		_, err := depman.RequestResource(ctx, BoolSpec{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -471,7 +461,7 @@ func TestRequestResource(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = depman.RequestResource(ctx, m, BoolSpec{})
+		_, err = depman.RequestResource(ctx, BoolSpec{})
 		if !errors.Is(err, depman.ErrResourceManagerClosed) {
 			t.Fatal(err)
 		}
@@ -524,19 +514,19 @@ type CyclicDep1Spec struct {
 	PreventCycle bool
 }
 
-func (spec CyclicDep1Spec) CreateResource(ctx context.Context, rm depman.ResourceManager) (Dep1Resource, depman.CloseFn, error) {
+func (spec CyclicDep1Spec) CreateResource(ctx context.Context) (Dep1Resource, depman.CloseFn, error) {
 	res := &dep1Impl{
 		value: "dep1",
 	}
 
 	if spec.PreventCycle {
-		err := depman.SetResource(ctx, rm, spec, Dep1Resource(res))
+		err := depman.SetResource(ctx, spec, Dep1Resource(res))
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	dep2, err := depman.RequestResource(ctx, rm, CyclicDep2Spec{
+	dep2, err := depman.RequestResource(ctx, CyclicDep2Spec{
 		PreventCycle: spec.PreventCycle,
 	})
 	if err != nil {
@@ -554,19 +544,19 @@ type CyclicDep2Spec struct {
 	PreventCycle bool
 }
 
-func (spec CyclicDep2Spec) CreateResource(ctx context.Context, rm depman.ResourceManager) (Dep2Resource, depman.CloseFn, error) {
+func (spec CyclicDep2Spec) CreateResource(ctx context.Context) (Dep2Resource, depman.CloseFn, error) {
 	res := &dep2Impl{
 		value: "dep2",
 	}
 
 	if spec.PreventCycle {
-		err := depman.SetResource(ctx, rm, spec, Dep2Resource(res))
+		err := depman.SetResource(ctx, spec, Dep2Resource(res))
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	dep1, err := depman.RequestResource(ctx, rm, CyclicDep1Spec{
+	dep1, err := depman.RequestResource(ctx, CyclicDep1Spec{
 		PreventCycle: spec.PreventCycle,
 	})
 	if err != nil {
@@ -584,9 +574,8 @@ func TestRequestResource_cyclicDependency(t *testing.T) {
 	t.Run("detect cycle dependency", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 		t.Cleanup(func() {
 			err := m.CloseAll(ctx)
 			if err != nil {
@@ -594,12 +583,12 @@ func TestRequestResource_cyclicDependency(t *testing.T) {
 			}
 		})
 
-		_, err := depman.RequestResource(ctx, m, CyclicDep1Spec{})
+		_, err := depman.RequestResource(ctx, CyclicDep1Spec{})
 		if !errors.Is(err, depman.ErrCycleDependency) {
 			t.Fatal(err)
 		}
 
-		_, err = depman.RequestResource(ctx, m, CyclicDep1Spec{})
+		_, err = depman.RequestResource(ctx, CyclicDep1Spec{})
 		if !errors.Is(err, depman.ErrResourceManagerAborted) {
 			t.Fatal(err)
 		}
@@ -608,9 +597,8 @@ func TestRequestResource_cyclicDependency(t *testing.T) {
 	t.Run("avoid cycle dependency", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := context.Background()
-
 		m := depman.NewManager()
+		ctx := depman.ContextWithResourceManager(context.Background(), m)
 		t.Cleanup(func() {
 			err := m.CloseAll(ctx)
 			if err != nil {
@@ -618,7 +606,7 @@ func TestRequestResource_cyclicDependency(t *testing.T) {
 			}
 		})
 
-		dep1, err := depman.RequestResource(ctx, m, CyclicDep1Spec{
+		dep1, err := depman.RequestResource(ctx, CyclicDep1Spec{
 			PreventCycle: true,
 		})
 		if err != nil {

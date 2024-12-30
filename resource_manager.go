@@ -35,6 +35,28 @@ var (
 	ErrResourceManagerAborted      = errors.New("resource manager was aborted")
 )
 
+type contextKeyResourceManager struct{}
+
+func resourceManagerFromContext(ctx context.Context) ResourceManager {
+	rm, ok := ctx.Value(contextKeyResourceManager{}).(ResourceManager)
+	if !ok {
+		return nil
+	}
+	return rm
+}
+
+func ResourceManagerFromContext(ctx context.Context) ResourceManager {
+	rm := resourceManagerFromContext(ctx)
+	if rm == nil {
+		panic("ctx doesn't have depman resource manager")
+	}
+	return rm
+}
+
+func ContextWithResourceManager(ctx context.Context, rm ResourceManager) context.Context {
+	return context.WithValue(ctx, contextKeyResourceManager{}, rm)
+}
+
 type contextKeyDependency struct{}
 
 func extractDependencies(ctx context.Context) []any {
@@ -160,7 +182,6 @@ func (m *managerImpl) createResource(ctx context.Context, spec any) (any, error)
 
 	vs := createResourceFn.Call([]reflect.Value{
 		reflect.ValueOf(ctx),
-		reflect.ValueOf(m),
 	})
 	if len(vs) != 3 {
 		return nil, fmt.Errorf("CreateResource must return 3 values")
@@ -208,6 +229,12 @@ func (m *managerImpl) checkDependencies(ctx context.Context, next any) (context.
 		if parentSpec == next {
 			var buf bytes.Buffer
 			for _, parentSpec := range parentSpecs {
+				rsInfo, ok := parentSpec.(resourceSpecInfo)
+				if ok {
+					_, _ = fmt.Fprintf(&buf, "%s -> ", rsInfo.ResourceSpecName())
+					continue
+				}
+
 				_, _ = fmt.Fprintf(&buf, "%T -> ", parentSpec)
 			}
 

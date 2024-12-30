@@ -16,7 +16,7 @@ var _ depman.ResourceSpec[int] = SharedResourceSpec{}
 
 type SharedResourceSpec struct{}
 
-func (spec SharedResourceSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (int, depman.CloseFn, error) {
+func (spec SharedResourceSpec) CreateResource(ctx context.Context) (int, depman.CloseFn, error) {
 	mutex.Lock()
 	defer mutex.Unlock()
 
@@ -31,7 +31,7 @@ type DedicatedResourceSpec struct {
 	PtrValue *string
 }
 
-func (spec *DedicatedResourceSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (func(error), depman.CloseFn, error) {
+func (spec *DedicatedResourceSpec) CreateResource(ctx context.Context) (func(error), depman.CloseFn, error) {
 	var err error
 	retFn := func(closeErr error) {
 		err = closeErr
@@ -44,9 +44,8 @@ func (spec *DedicatedResourceSpec) CreateResource(ctx context.Context, rm depman
 }
 
 func ExampleRequestResource() {
-	ctx := context.Background()
-
 	m := depman.NewManager()
+	ctx := depman.ContextWithResourceManager(context.Background(), m)
 
 	// https://go.dev/ref/spec#Comparison_operators
 	// > Struct types are comparable if all their field types are comparable
@@ -56,7 +55,7 @@ func ExampleRequestResource() {
 	}
 
 	// run CreateResource method once
-	v, err := depman.RequestResource(ctx, m, SharedResourceSpec{})
+	v, err := depman.RequestResource(ctx, SharedResourceSpec{})
 	if err != nil {
 		panic(err)
 	}
@@ -65,7 +64,7 @@ func ExampleRequestResource() {
 	// request resource again.
 	// and its value is the same as the previous one.
 	// because the specification is the same.
-	v, err = depman.RequestResource(ctx, m, SharedResourceSpec{})
+	v, err = depman.RequestResource(ctx, SharedResourceSpec{})
 	if err != nil {
 		panic(err)
 	}
@@ -77,6 +76,7 @@ func ExampleRequestResource() {
 	}
 
 	m = depman.NewManager()
+	ctx = depman.ContextWithResourceManager(ctx, m)
 
 	// https://go.dev/ref/spec#Comparison_operators
 	// > Pointer types are comparable. Two pointer values are equal if they point to the same variable or if both have value nil.
@@ -88,14 +88,14 @@ func ExampleRequestResource() {
 	}
 
 	closeErr1 := errors.New("close error 1")
-	errFn1, err := depman.RequestResource(ctx, m, &DedicatedResourceSpec{})
+	errFn1, err := depman.RequestResource(ctx, &DedicatedResourceSpec{})
 	if err != nil {
 		panic(err)
 	}
 	errFn1(closeErr1)
 
 	closeErr2 := errors.New("close error 2")
-	errFn2, err := depman.RequestResource(ctx, m, &DedicatedResourceSpec{})
+	errFn2, err := depman.RequestResource(ctx, &DedicatedResourceSpec{})
 	if err != nil {
 		panic(err)
 	}
@@ -122,7 +122,7 @@ type SumSpec struct {
 	sum     int
 }
 
-func (spec SumSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (int, depman.CloseFn, error) {
+func (spec SumSpec) CreateResource(ctx context.Context) (int, depman.CloseFn, error) {
 	fmt.Println(spec.current)
 	if spec.Value == spec.current {
 		return spec.sum, nil, nil
@@ -132,23 +132,22 @@ func (spec SumSpec) CreateResource(ctx context.Context, rm depman.ResourceManage
 		current: spec.current + 1,
 		sum:     spec.sum + spec.current + 1,
 	}
-	v, err := depman.RequestResource(ctx, rm, nextSpec)
+	v, err := depman.RequestResource(ctx, nextSpec)
 	return v, nil, err
 }
 
 func ExampleRequestResource_specCascade() {
-	ctx := context.Background()
-
 	m := depman.NewManager()
+	ctx := depman.ContextWithResourceManager(context.Background(), m)
 
-	v, err := depman.RequestResource(ctx, m, SumSpec{Value: 10})
+	v, err := depman.RequestResource(ctx, SumSpec{Value: 10})
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println(v)
 
 	// cached. so no output in resource creation process.
-	v, err = depman.RequestResource(ctx, m, SumSpec{Value: 10})
+	v, err = depman.RequestResource(ctx, SumSpec{Value: 10})
 	if err != nil {
 		panic(err)
 	}
@@ -176,28 +175,27 @@ type CallbackFnSpec struct {
 	Callback func()
 }
 
-func (spec *CallbackFnSpec) CreateResource(ctx context.Context, rm depman.ResourceManager) (int, depman.CloseFn, error) {
+func (spec *CallbackFnSpec) CreateResource(ctx context.Context) (int, depman.CloseFn, error) {
 	spec.Callback()
 	return 0, nil, nil
 }
 
 func ExampleSetResource() {
-	ctx := context.Background()
-
 	m := depman.NewManager()
+	ctx := depman.ContextWithResourceManager(context.Background(), m)
 
 	spec := &CallbackFnSpec{
 		Callback: func() {
 			fmt.Println("callback")
 		},
 	}
-	err := depman.SetResource(ctx, m, spec, 100)
+	err := depman.SetResource(ctx, spec, 100)
 	if err != nil {
 		panic(err)
 	}
 
 	// cached. so callback function never called.
-	v, err := depman.RequestResource(ctx, m, spec)
+	v, err := depman.RequestResource(ctx, spec)
 	if err != nil {
 		panic(err)
 	}
